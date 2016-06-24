@@ -5,18 +5,26 @@ Created on Thu Jun 23 16:16:17 2016
 @author: U505121
 """
 
-import numpy as np
 import pandas as pd
-from sklearn.feature_extraction.text import CountVectorizer
+from pandas import DataFrame
+import nltk
+import csv
+import re
+from nltk import word_tokenize
+from nltk.corpus import stopwords
+from sklearn import preprocessing
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import roc_auc_score
 
 df = pd.read_csv('C:/Users/U505121/Desktop/xml/10_K/final.csv')
+df1=pd.concat([df['Indicator'], df['Phrase']], axis=1)
+
+
 df_train = df[:1874]
 df_test = df[1874:]
 
-
-#--------------------Training the model---------------------#
-
 words = df_train['Phrase'].tolist()
+words_test=df_test['Phrase'].tolist()
 stopwords = ['a',
            'about',
            'above',
@@ -334,23 +342,55 @@ stopwords = ['a',
            'yours',
            'yourself',
            'yourselves']
-        
-'''vect = TfidfVectorizer(stop_words = stopwords, token_pattern = '[a-z]+')
-
-idfArray = vect.fit_transform(words).toarray()
-
-netscore = vect.idf_
-wordname = vect.get_feature_names()
-wordscore = []
-featurename = []
-
-for i in range(len(netscore)):
-    if netscore[i] <= 5.00 and len(wordname[i]) > 1:
-        wordscore.append(netscore[i])
-        featurename.append(wordname[i])'''
-    
+           
 vect = CountVectorizer(stop_words = stopwords, token_pattern = '[a-z]+', min_df = 5, max_features = 100)
 idfArray = vect.fit_transform(words).toarray()
+testArray = vect.fit_transform(words_test).toarray()
 
-vect_test = CountVectorizer(stop_words = stopwords, token_pattern = '[a-z]+', min_df = 5, max_features = 100)
-testArray = vect_test.fit_transform(words_test).toarray()
+number=preprocessing.LabelEncoder()
+df['Phrase']=number.fit_transform(df.Phrase)
+df['Indicator']=number.fit_transform(df.Indicator)
+rf = RandomForestRegressor(n_estimators=1000,oob_score=True)
+rf.fit(idfArray, df['Indicator'][:1874])
+t=[]
+a=0
+b=0
+c=0
+d=0
+co=0
+for i in range(0,len(testArray)):
+    t.append(rf.predict(testArray[i]))
+for i in range(0,t.__len__()):
+    t[i]=float(t[i])
+df1=pd.DataFrame({'true':df['Indicator'][1874:],'model':t,'modify':1})  
+for i in range(1874,2674):
+    if df1['model'][i]>1.76:
+        df1['modify'][i]=2
+    else:
+         df1['modify'][i]=1
+    if df1['true'][i]==df1['modify'][i]:
+        co=co+1
+        
+        
+#creating confusion matrix
+df2=pd.DataFrame(index={'Model +ve','Model -ve'},columns={'Target +ve','Target -ve'})
+for i in range(1874,2675):
+    if df1['modify'][i]==2 and df1['true'][i]==2:
+        a=a+1
+    elif df1['modify'][i]==2 and df1['true'][i]==1:
+        b=b+1
+    elif df1['modify'][i]==1 and df1['true'][i]==2:
+        c=c+1
+    else:
+        d=d+1
+
+df2['Target +ve']['Model +ve']=a
+df2['Target +ve']['Model -ve']=c
+df2['Target -ve']['Model +ve']=b
+df2['Target -ve']['Model -ve']=d
+
+pp=float(a)/(a+b)
+np=float(d)/(c+d)
+sen=float(a)/(a+c)
+spe=float(d)/(b+d)
+acc=(a+d)/float(a+b+c+d)
