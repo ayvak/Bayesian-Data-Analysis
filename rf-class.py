@@ -19,16 +19,17 @@ from sklearn.metrics import roc_auc_score
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics import roc_curve, auc
 import matplotlib.pyplot as plt
+import numpy as np
 import random
+from sklearn.cross_validation import KFold
 
 #READING 10-K FILES
 df = pd.read_csv('C:/Users/U505121/Desktop/xml/10_K/final.csv')
 df1=pd.concat([df['Indicator'], df['Phrase']], axis=1)
 
 #CLASSIFYING INTO TRAIN AND TEST DATA
-df_train = df[:1874]
-df_test = df[1874:]
 
+kf = KFold(2675, n_folds=6)
 words = df_train['Phrase'].tolist()
 words_test=df_test['Phrase'].tolist()
 stopwords = ['a','about','above','across','after','afterwards','again','against','all','almost','alone','along',
@@ -259,14 +260,14 @@ stopwords = ['a','about','above','across','after','afterwards','again','against'
    'yourselves']
 
 #CONVERTING SENTENCES TO VECTORS SO THAT THEY CAN BE INPUT IN RF AND YES,NO TO NUMBERS       
-vect = CountVectorizer(stop_words = stopwords, token_pattern = '[a-z]+', min_df = 5, max_features = 400)
+vect = CountVectorizer(stop_words = stopwords, token_pattern = '[a-z]+', min_df=5,max_features = 400)
 idfArray = vect.fit_transform(words).toarray()
 testArray = vect.fit_transform(words_test).toarray()
 number = preprocessing.LabelEncoder()
 df['Indicator']=number.fit_transform(df.Indicator)
 
 #IMPLEMENTING RANDOM FOREST
-rf = RandomForestClassifier(n_estimators=1000,min_samples_leaf=25)
+rf = RandomForestClassifier(n_estimators=1000,min_samples_leaf=5)
 rf.fit(idfArray, df['Indicator'][:1874])
 
 t=[]
@@ -283,7 +284,7 @@ u=t.tolist()
 
 t=[]
 for i in range(0,len(u)):
-    if u[i][1]>0.42:
+    if u[i][1]>0.66:
         t.append(1)
     else:
         t.append(2)
@@ -296,7 +297,7 @@ df1=pd.DataFrame({'true':df['Indicator'][1874:],'model':t,'prob':k})
 
 #CONFUSION MATRIX
 df2=pd.DataFrame(index={'Model +ve','Model -ve'},columns={'Target +ve','Target -ve'})
-for i in range(1874,2675):
+for i in range(1874,2674):
     if df1['true'][i]==df1['model'][i]:
         co=co+1 
     if df1['model'][i]==2 and df1['true'][i]==2:
@@ -326,9 +327,17 @@ df1=df1[df1.true!=0]
 df1=df1.reindex()
 fpr, tpr,thresholds = metrics.roc_curve(df1['true']-1,df1['prob'])
 roc_auc = auc(fpr, tpr)
-f1=plt.figure
-plt.plot(fpr, tpr, 'b',label='AUC = %0.2f'% roc_auc)
+
+fig1 = plt.figure()
+ax1 = fig1.add_subplot(111)
+ax1.plot(fpr, tpr)
 
 #PLOTTING SENSITIVITY VS. SPECIFICITY CURVE
-plt.plot(thresholds, tpr, 'b')
-plt.plot(thresholds,1-fpr,'r')
+fig2 = plt.figure()
+ax2 = fig2.add_subplot(111)
+ax2.plot(thresholds, tpr, 'b')
+ax2.plot(thresholds,1-fpr,'r')
+
+#PLOTTING GAINS CHART
+df3 = df1[df1.model.isin([2])]
+ 
