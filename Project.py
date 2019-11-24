@@ -44,22 +44,21 @@ eig_val, eig_vec=la.eigsh(L,6)
 # Computing k-means
 #kmeans = KMeans(n_clusters=i, init='k-means++', max_iter=300, n_init=10, random_state=0)
 km=KMeans(n_clusters=n_partition,max_iter=5000)
-km.fit(np.array(vec).transpose())
+km.fit(eig_vec)
 
 
 #objective function
 cluster=[]
 cluster.append(km.labels_)
-cluster.append(range(len(km.labels_)))
+cluster[0]=list(cluster[0])
 denom=Counter(km.labels_).values()
 phi=0
+a=[0]*n_partition
+phi=0
 for i in range(n_partition):
-    phi=phi+/denom
-
-
-
-
-
-
-
-
+    for node in range(n_vert):
+        if(cluster[0][node]==i):
+            for n in G.neighbors(node):
+                if(cluster[0][n]!=i):
+                    a[i]+=1
+phi=sum(np.array(a)/np.array(denom))
