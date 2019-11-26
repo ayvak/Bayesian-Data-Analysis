@@ -1,0 +1,260 @@
+---
+title: "Inferring user interest over features by preference feedback on items"
+author: "Anonymous"
+output: 
+  pdf_document: 
+    toc: yes
+    toc_depth: 1
+---
+# Acknowledgements
+The following project statement was defined by __________ and we would like to thank him for his guidance throughout. We would also like to thank  _______, teaching assistant for the course Bayesian Data Analysis. Finally, we thank _______, professor of the course Bayesian Data Analysis for providing us an opportunity to do the project in the same.
+
+# Abstract
+This project is motivated by understanding the preferences of people while choosing a house in the housing market. Let us look in a little more details about our problem statement. \newline
+
+Consider the case where a user compares two items x and x', among a finite set of items (with size k), in $R^n$, and provides a feedback about which one is more preferable. An example of this could be that a user wants to buy a house but in her search only compares two houses with each other and states which one she likes more. Given these preference feedback on pair of items, we are interested to learn how much the user values each feature of the items (this would be for example, the number of rooms, the size of the house, etc.). In other words, out of n features that items have, learn which features are more important for the user. \newline
+
+We assume that the user preference feedback is determined by a latent parameter w $\in$ R$^n$  through the following feedback model:
+
+$$ f_{x,x'} \sim I(w^Tx - w^Tx' \geq 0)B( \pi) 
++ I(w^Tx - w^Tx' < 0)B( 1- \pi)$$
+where I is the indicator function, B indicates the bernoulli distribution and $\pi$ is the probability that the user is correct in report of her preference(a noise model). In the model above the feedback 1 indicates that the user preference over item x is higher than x' and feedback 0  the reverse preference. Note that the continuous values of items is modeled as w$^T$x and the above likelihood compares these unseen continuous values. \newline
+
+The indicator function is not a differentiable function, making it difficult to use this as a likelihood function in stan. So we choose a differentiable function which closely resembles it. In this project, we would be taking cumulative distributive function of a normal distribution with low variance instead of our indicator functin as our likelihood function. \newline
+
+We would be looking at two types of models for the same preference feedback model.First is a non-hierarchical model for a single user and learning the importance of the weights of each feature. Second, we would be looking at the hierarchical model learning the importance of weights of different features with feedback information from multiple users. We compare the weights obtained from our models to the true values. Finally, we conclude with comparing these models and predicting the feedback for a new user.
+
+# Data Simulation
+In this project, we would be simulating our house marketing data to use it as input for our model. 
+
+## Generating items feature matrix 
+
+```{r}
+library(MASS)
+# settings
+num_dim = 5
+num_data = 7
+
+#First let's create the item matrix. This will be the same between normal and hierarchical model
+# generate random data 
+Sigma = diag(num_dim)
+Mu = rep(0, num_dim)
+
+X = mvrnorm(n = num_data, Mu, Sigma)
+save(X, file = "X.RData")
+```
+
+## Generating one user preferential feedback data
+
+```{r}
+# generate true hidden weights once 
+Sigma = diag(num_dim)
+Mu = rep(0, num_dim)
+w_true = mvrnorm(n = 1, Mu, Sigma)
+
+# generate all possible comparison feedbacks basesd on the true weights 
+# training data is in the form (i,j,f) where i and j are the indices of the first and second item and f is the binary feedback:
+# f=1 if X[i] w > X[j] w and 0 otherwise
+# save the indices of first data in list x, second data in xp and feedback value in f_x_xp
+x = c()
+xp = c()
+f_x_xp = c()
+counter = 1
+for(i in 1:(num_data-1)){
+  for(j in (i+1):num_data){
+    if(sum(X[i,]*w_true)> sum(X[j,]*w_true) ){
+      f = 1
+    }else{
+      f = 0
+    }
+    x[counter] = i
+    xp[counter] = j
+    f_x_xp[counter] = f
+    counter = counter + 1 
+  }
+}
+
+#save the necessary varables
+save(f_x_xp, x, xp, w_true, file = "variables.rda")
+
+```
+
+## Generating several user preferential feedback data (for hiererchical model)
+```{r}
+# settings
+num_users = 4
+
+# generate true hidden weights once for each user (size: num_users * num_dim)
+# TODO: for now assume no correlation between dimensions -> later put corrolation?
+Sigma = diag(num_dim)
+Mu = rep(0, num_dim)
+w_true_h = mvrnorm(n = num_users, Mu, Sigma)
+  
+# generate all possible comparison feedbacks basesd on the true weights for each user
+# training data is in the form (i,j,f) where i and j are the indices of the first and second item and f is the binary feedback:
+# f=1 if X[i] w > X[j] w and 0 otherwise
+# save the indices of first data in list x, second data in xp and feedback value in f_x_xp
+# save the user index in a vector with the same size as number of feedbacks which indicates which user generated that data, e.g.,  [1, 1, 1, 2 ,....,num_users] 
+u_index = c()
+x_h = c()
+xp_h = c()
+f_x_xp_h = c()
+counter = 1
+for(u in 1:num_users) {
+  for(i in 1:(num_data-1)){
+    for(j in (i+1):num_data){
+      if(sum(X[i,]*w_true_h[u,])> sum(X[j,]*w_true_h[u,]) ){
+        f = 1
+      }else{
+        f = 0
+      }
+      x_h[counter] = i
+      xp_h[counter] = j
+      f_x_xp_h[counter] = f
+      u_index[counter] = u
+      counter = counter + 1 
+    }
+  }
+}
+#save the necessary varables
+save(f_x_xp_h, x_h, xp_h, u_index , file = "variables_hie.rda")
+save(w_true_h, file = "w_true_hie.RData")
+```
+
+```{r}
+load("X.RData")
+load("variables.rda")
+load("variables_hie.rda")
+load("w_true_hie.RData")
+```
+
+# Likelihood and choice of priors
+
+# Non-Hierarchical Model with normal distribution as a prior
+## Stan code
+Following is the stan code for non-hierarchical model used:
+```
+data {
+  int<lower=0> n;  // n is number of houses, d is number of features
+  int<lower=0> d;
+  int<lower=0> m; // m is number of feedback 
+  matrix[n,d] dat;
+  int<lower=0> f[m];
+  int x[m];
+  int xp[m];
+  
+  //real pi;
+}
+
+
+parameters {
+  //real sigma;
+  vector[d] w;
+  
+}
+transformed parameters{
+  vector[m] a;
+  vector[m] p1;
+  vector[m] p2;
+  for(i in 1:m){
+    a[i]=(dat[x[i]]*w)-(dat[xp[i]]*w);
+    p1[i] = normal_lcdf((a[i])|0 , 2);
+    p2[i] = normal_lcdf((-1*a[i])| 0 ,2);
+  }
+    
+  
+}
+
+
+
+model {
+  for (j in 1:d)
+    w[j] ~ normal(0, 1);
+  for (i in 1:m)
+    target += log_sum_exp(p1[i]+bernoulli_lpmf(f[i]|0.99),p2[i]+bernoulli_lpmf(f[i]|0.01));  
+}
+```
+## Fitting the model
+```{r}
+library(rstan)
+library(ggplot2)
+library(bayesplot)
+```
+
+```{r, results='hide'}
+model_1 <- stan_model('Project.stan')
+data_1 <- list(n = nrow(X),
+                 d = ncol(X),
+                 m = length(f_x_xp),
+                 dat = X,
+                 f = f_x_xp,
+                 x = x,
+                 xp = xp
+)
+fit_sample <- sampling(model_1, data = data_1)
+```
+## Rhat and effective sample size
+Rhat function produces R-hat convergence diagnostic and tells whether chains have mixed well. If Rhat values are less than 1.05, it implies that the chains have converged.
+```{r}
+print(fit_sample)
+```
+We can see that Rhat value for all the weights are less than 1.05 implying that all the chains have converged.
+
+## HMC-NUT Specific diagnostics
+Hamiltonian Monte Carlo (HMC), and the No-U-Turn Sampler (HMC-NUTS) produces diagnostics that ensure the samples are obtained from the posterior distribution itself. \newline
+check_divergence tells us about the number of chains that have diverged. If there are too many divergent chains, then the sampler is not drawing from the entire posterior distribution and it could be biased. \newline
+NUTS selects number of steps in each iteration. By default, it is 10 steps but sometimes it takes more steps than the maximum given. It tells us about the efficiency of the model.
+check_treedepth tells us whether we need to increase the default steps used. \newline
+
+```{r}
+check_divergences(fit_sample)
+check_treedepth(fit_sample)
+```
+Here, we see that there are no iterations which have diverged and none which have saturated the maximum tree depth.
+
+## Exerimental Results
+Now that we have ensured that out model has converged and sampled properly, we could compare the weights of the features we obtained from this model with the true values of the weights. We are plotting the histogram of the weight distributions obtained from our model. The blue line in each histogram denotes the true weight of the features.
+
+```{r}
+ext_sample = extract(fit_sample)
+for(i in 1:length(w_true)){
+  draws <- as.matrix(fit_sample, pars = c(sprintf('w[%d]',i)))
+  hist(draws)
+  lines(w_true[i],type='l')
+  lines(c(w_true[i],w_true[i]), c(0,1000), col="blue", lwd=2)
+}
+```
+
+Since our true weight always lies in the posterior distribution of our weights, our model has learnt the system and this model works for the simulated data.
+
+
+
+```{r, results='hide'}
+model_2 <- stan_model('Project_prior_dirichlet.stan')
+data_2 <- list(n = nrow(X),
+                 d = ncol(X),
+                 m = length(f_x_xp),
+                 dat = X,
+                 f = f_x_xp,
+                 x = x,
+                 xp = xp
+)
+fit_sample2 <- sampling(model_2, data = data_2)
+```
+```{r}
+print(fit_sample2)
+```
+```{r}
+check_divergences(fit_sample2)
+check_treedepth(fit_sample2)
+check_energy(fit_sample2)
+```
+```{r}
+ext_sample = extract(fit_sample)
+for(i in 1:length(w_true)){
+  draws <- as.matrix(fit_sample, pars = c(sprintf('w[%d]',i)))
+  hist(draws)
+  lines(w_true[i],type='l')
+  lines(c(w_true[i],w_true[i]), c(0,1000), col="blue", lwd=2)
+}
+```
