@@ -47,18 +47,19 @@ km=KMeans(n_clusters=n_partition,max_iter=5000)
 km.fit(eig_vec)
 
 
+
 #objective function
 cluster=[]
-cluster.append(km.labels_)
-cluster[0]=list(cluster[0])
-denom=Counter(km.labels_).values()
-phi=0
-a=[0]*n_partition
-phi=0
-for i in range(n_partition):
-    for node in range(n_vert):
-        if(cluster[0][node]==i):
-            for n in G.neighbors(node):
-                if(cluster[0][n]!=i):
-                    a[i]+=1
-phi=sum(np.array(a)/np.array(denom))
+cluster.append(km.labels_) #Clusters of different nodes found by k-means
+cluster=list(cluster[0])
+nodes_in_cluster=Counter(km.labels_).values() #Number of nodes in each cluster
+phi=0 #objective function
+edge_out=[0.0]*n_partition #Array to compute number of edges moving out of a cluster to another
+
+for node in range(n_vert):
+    for n in G.neighbors(node):
+            if(cluster[n]!=cluster[node]):
+                edge_out[cluster[node]]+=1
+                
+phi=sum(np.array(edge_out)/np.array(nodes_in_cluster)) 
+    
