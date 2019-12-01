@@ -7,22 +7,23 @@ output:
     toc_depth: 1
 ---
 # Acknowledgements
-The following project statement was defined by __________ and we would like to thank him for his guidance throughout. We would also like to thank  _______, teaching assistant for the course Bayesian Data Analysis. Finally, we thank _______, professor of the course Bayesian Data Analysis for providing us an opportunity to do the project in the same.
+The following project statement was defined by Pedram Daee and we would like to thank him for his guidance throughout. We would also like to thank  Eero Siivola, teaching assistant for the course Bayesian Data Analysis. Finally, we thank Aki Vehtari, professor of the course Bayesian Data Analysis for providing us an opportunity to do the project.
 
-# Abstract
-This project is motivated by understanding the preferences of people while choosing a house in the housing market. Let us look in a little more details about our problem statement. \newline
+# Introduction
+This project is motivated by understanding the preferences of people while choosing a house in the housing market. Let us look in a little more detail at our problem statement. \newline
 
-Consider the case where a user compares two items x and x', among a finite set of items (with size k), in $R^n$, and provides a feedback about which one is more preferable. An example of this could be that a user wants to buy a house but in her search only compares two houses with each other and states which one she likes more. Given these preference feedback on pair of items, we are interested to learn how much the user values each feature of the items (this would be for example, the number of rooms, the size of the house, etc.). In other words, out of n features that items have, learn which features are more important for the user. \newline
+Consider the case where a user compares two items $x$ and $x'$, among a finite set of items (with size $k$), in $R^n$, and provides a feedback about which one is more preferable. An example of this could be that a user wants to buy a house but in her search only compares two houses with each other and states which one she likes more. Given these preference feedback on pair of items, we are interested to learn how much the user values each feature of the items (this would be for example, the number of rooms, the size of the house, etc.). In other words, out of n features that items have, learn which features are more important for the user. \newline
 
-We assume that the user preference feedback is determined by a latent parameter w $\in$ R$^n$  through the following feedback model:
+We assume that the user preference feedback is determined by a latent parameter $w \in R^n$  through the following feedback model:
 
 $$ f_{x,x'} \sim I(w^Tx - w^Tx' \geq 0)B( \pi) 
 + I(w^Tx - w^Tx' < 0)B( 1- \pi)$$
-where I is the indicator function, B indicates the bernoulli distribution and $\pi$ is the probability that the user is correct in report of her preference(a noise model). In the model above the feedback 1 indicates that the user preference over item x is higher than x' and feedback 0  the reverse preference. Note that the continuous values of items is modeled as w$^T$x and the above likelihood compares these unseen continuous values. \newline
+where $I$ is the indicator function, $B$ indicates the Bernoulli distribution and $\pi$ is the probability that the user is correct in report of her preference (a noise model). In the model above the feedback 1 indicates that the user preference over item $x$ is higher than $x'$ and feedback 0 the reverse preference. Note that the continuous values of items is modeled as $w^Tx$ and the above likelihood compares these unseen continuous values. \newline
 
-The indicator function is not a differentiable function, making it difficult to use this as a likelihood function in stan. So we choose a differentiable function which closely resembles it. In this project, we would be taking cumulative distributive function of a normal distribution with low variance instead of our indicator functin as our likelihood function. \newline
+The indicator function is not a differentiable function, making it difficult to use this as a likelihood function in Stan. So we choose a differentiable function which closely resembles it. In this project, we would be taking cumulative distribution function of a normal distribution with low variance as an approximation to the indicator function as our likelihood function.  \newline
 
-We would be looking at two types of models for the same preference feedback model.First is a non-hierarchical model for a single user and learning the importance of the weights of each feature. Second, we would be looking at the hierarchical model learning the importance of weights of different features with feedback information from multiple users. We compare the weights obtained from our models to the true values. Finally, we conclude with comparing these models and predicting the feedback for a new user.
+
+We would be looking at two types of models for the same preference feedback model. First is a non-hierarchical model for a single user and learning the importance of the weights of each feature. Second, we would be looking at the hierarchical model learning the importance of weights of different features with feedback information from multiple users. We compare the weights obtained from our models to the true values. Finally, we conclude with comparing these models and predicting the feedback for a new user.
 
 # Data Simulation
 In this project, we would be simulating our house marketing data to use it as input for our model. 
@@ -129,10 +130,24 @@ load("w_true_hie.RData")
 ```
 
 # Likelihood and choice of priors
+By choosing the variance of a normal distribution to be very small, the CDF of the normal distribution can be used as a continious approximation of an indicator function (see pictures bellow).
+
+![CDF of a Normal distribution N(0,0.1)](cdf_sigma01.png)
+
+![CDF of a Normal distribution with a small variance, N(0,0.001), can be used to approximate an indicator function](cdf_sigma0001.png)
+
+We choose normal for our priors because it is a typical model in linear regression problems. 
 
 # Non-Hierarchical Model with normal distribution as a prior
+
+The introduced likelihood has a parameter $w \in R^n$ that specifies the user interest over items. We assume a multivariate Gaussian distribution on this parameter. We consider the prior mean to be zero and the covariance to be diagonal (assuming independence between features):
+
+$w \sim N(0,\sigma^2 I)$
+
+where $I$ here is an identity matrix and $\sigma$ is a hyperparameter. It is trivial to also consider a prior distribution on $\sigma$ but here we fix it at 1.
+
 ## Stan code
-Following is the stan code for non-hierarchical model used:
+The Following is the stan code for non-hierarchical model used (see likelihood and prior distribution assumption above):
 ```
 data {
   int<lower=0> n;  // n is number of houses, d is number of features
@@ -142,16 +157,12 @@ data {
   int<lower=0> f[m];
   int x[m];
   int xp[m];
-  
-  //real pi;
 }
-
 
 parameters {
-  //real sigma;
   vector[d] w;
-  
 }
+
 transformed parameters{
   vector[m] a;
   vector[m] p1;
@@ -161,19 +172,24 @@ transformed parameters{
     p1[i] = normal_lcdf((a[i])|0 , 2);
     p2[i] = normal_lcdf((-1*a[i])| 0 ,2);
   }
-    
-  
 }
-
-
 
 model {
   for (j in 1:d)
     w[j] ~ normal(0, 1);
   for (i in 1:m)
-    target += log_sum_exp(p1[i]+bernoulli_lpmf(f[i]|0.99),p2[i]+bernoulli_lpmf(f[i]|0.01));  
+    target += log_sum_exp(p1[i]+bernoulli_lpmf(f[i]|0.95),p2[i]+bernoulli_lpmf(f[i]|0.05));  
 }
 ```
+
+#### Notes about the above Stan code: 
+
+* The probability that the user is correct in report of his/her feedback in the likelihood is fixed at $\pi=0.95$ in the above code. This is because we knew that the simulated data are generated without noise. 
+* To approximate the indicator function we have used the CDF of $N(0,2)$. We had to increase the variance as sometimes the CDF values were very close to 0. This was problametic as the log of 0 is $-\infty$ whcih causes problems in the posterior commputations. By using $N(0,3)$, we managed to avoid these cases.
+* In the Stan code, instead of the likelihood function, we are using the syntax _$_target += u_ This syntax adds _u_ to the target log density. From sampling point of view the line _target += normal_lpdf(y | mu, sigma);_ has the same effect as _y ~ normal(mu, sigma);_. 
+* Since we have a mixture model (two Bernoulli distributions) we use log_sum_exp to represent the mixture model[more information](https://mc-stan.org/docs/2_18/stan-users-guide/summing-out-the-responsibility-parameter.html)
+
+
 ## Fitting the model
 ```{r}
 library(rstan)
@@ -182,23 +198,24 @@ library(bayesplot)
 ```
 
 ```{r, results='hide'}
-model_1 <- stan_model('Project.stan')
-data_1 <- list(n = nrow(X),
+model_pooled <- stan_model('stan.stan')
+data_pooled <- list(n = nrow(X),
                  d = ncol(X),
-                 m = length(f_x_xp),
+                 m = length(f_x_xp_h),
                  dat = X,
-                 f = f_x_xp,
-                 x = x,
-                 xp = xp
+                 f = f_x_xp_h,
+                 x = x_h,
+                 xp = xp_h
 )
-fit_sample <- sampling(model_1, data = data_1)
+fit_sample_p <- sampling(model_pooled, data = data_pooled,
+                         chains = 4, iter = 4000, warmup = 2000)
 ```
 ## Rhat and effective sample size
 Rhat function produces R-hat convergence diagnostic and tells whether chains have mixed well. If Rhat values are less than 1.05, it implies that the chains have converged.
 ```{r}
-print(fit_sample)
+print(fit_sample_p)
 ```
-We can see that Rhat value for all the weights are less than 1.05 implying that all the chains have converged.
+We can see that Rhat value for all the weights are less than 1.05 suggesting that all the chains have converged.
 
 ## HMC-NUT Specific diagnostics
 Hamiltonian Monte Carlo (HMC), and the No-U-Turn Sampler (HMC-NUTS) produces diagnostics that ensure the samples are obtained from the posterior distribution itself. \newline
@@ -207,8 +224,141 @@ NUTS selects number of steps in each iteration. By default, it is 10 steps but s
 check_treedepth tells us whether we need to increase the default steps used. \newline
 
 ```{r}
-check_divergences(fit_sample)
-check_treedepth(fit_sample)
+check_divergences(fit_sample_p)
+check_treedepth(fit_sample_p)
+```
+Here, we see that there are no iterations which have diverged and none which have saturated the maximum tree depth.
+
+## Experimental Results
+Now that we have ensured that out model has converged and sampled properly, we could compare the weights of the features we obtained from this model with the true values of the weights. Here, we have access to these true values as we are aware of the data generating process. We are plotting the histogram of the weight distributions obtained from our model. The blue line in each histogram denotes the true weight of the features.
+
+```{r}
+ext_sample = extract(fit_sample_p)
+for(i in 1:ncol(w_true_h)){
+  draws <- as.matrix(fit_sample_p, pars = c(sprintf('w[%d]',i)))
+  hist(draws)
+  lines(w_true_h[i],type='l')
+  lines(c(w_true_h[i],w_true_h[i]), c(0,1000), col="blue", lwd=2)
+}
+```
+
+Since our true weight always lies in the posterior distribution of our weights, our model has learnt the system and this model works for the simulated data.
+
+## Sensitivity check for priors 
+For this part we consider 2 different priors othet than the one we used in our model. 
+```{r, results='hide'}
+model_priorcheck1 <- stan_model('priorsensitiv1.stan')
+data_priorcheck1<- list(n = nrow(X),
+                 d = ncol(X),
+                 m = length(f_x_xp_h),
+                 dat = X,
+                 f = f_x_xp_h,
+                 x = x_h,
+                 xp = xp_h
+)
+fit_sample_priorcheck1 <- sampling(model_priorcheck1, data = data_priorcheck1,
+                         chains = 4, iter = 4000, warmup = 2000)
+```
+
+```{r}
+print(fit_sample_priorcheck1)
+```
+
+```{r}
+ext_sample = extract(fit_sample_priorcheck1)
+for(i in 1:length(w_true)){
+  draws <- as.matrix(fit_sample_priorcheck1, pars = c(sprintf('w[%d]',i)))
+  hist(draws)
+  lines(w_true[i],type='l')
+  lines(c(w_true[i],w_true[i]), c(0,1000), col="blue", lwd=2)
+}
+```
+# Hierarchical Model with normal distribution as a prior
+In this part we use a hierarchical model for the problem. In the hierarchical model instead of having feedback from one user, we have feedback of several users (here 4). Each feedback is considered to come from a different multivariate Gaussian distribution (weights) with mean vector $\mu$ and identity covariance matrix, and all mean vectors ($\mu$) come from a common multivariante Gaussian distribution with mean vector 0 and identity covariance matrix. This hierarchical structure can be represeted as:
+
+$w^j \sim N(\mu^j, I)$
+$\mu^j \sim N(0, I)$
+
+Having a hierarchical model has the advantage of learning better by getting information from other users. Therefore, the model can improve itself better than the non-hierarchical model. 
+
+
+## Stan code
+Following is the stan code for hierarchical model used:
+```
+data {
+  int<lower=0> n;  // n is number of houses, d is number of features
+  int<lower=0> d;
+  int<lower=0> m; // m is number of feedback 
+  int<lower=0> n_user; //  number of users
+  matrix[n,d] dat;
+  int<lower=0> f[m];
+  int x[m];
+  int xp[m];
+  int u_index[m];
+}
+
+parameters {
+  matrix[n_user,d] w;
+  vector[d] mu;
+}
+
+transformed parameters{
+  vector[m] a;
+  vector[m] p1;
+  vector[m] p2;
+  for(i in 1:m){
+    a[i]=(dat[x[i]]*w[u_index[i]]')-(dat[xp[i]]*w[u_index[i]]');
+    p1[i] = normal_lcdf((a[i])|0 , 3);
+    p2[i] = normal_lcdf((-1*a[i])| 0 ,3);
+  }
+}
+
+model {
+  for (j in 1:d)
+    mu[j] ~ normal(0, 1);
+    
+  for (k in 1:n_user)
+    for (j in 1:d)
+      w[k,j] ~ normal(mu[j], 1);
+      
+  for (i in 1:m)
+    target += log_sum_exp(p1[i]+bernoulli_lpmf(f[i]|0.95),p2[i]+bernoulli_lpmf(f[i]|0.05));  
+}
+
+generated quantities{
+  vector[m] log_lik;
+  for(i in 1:m)
+    log_lik[i]= log_sum_exp(p1[i]+bernoulli_lpmf(f[i]|0.95),p2[i]+bernoulli_lpmf(f[i]|0.05));
+}
+```
+## Fitting the model
+```{r}
+model_hier <- stan_model('stanhier.stan')
+data_hier <- list(n = nrow(X),
+                 d = ncol(X),
+                 m = length(f_x_xp_h),
+                 n_user = nrow(w_true_h),
+                 dat = X,
+                 f = f_x_xp_h,
+                 x = x_h,
+                 xp = xp_h,
+                 u_index = u_index 
+)
+fit_sample_h <- sampling(model_hier, data = data_hier,
+                       chains = 4, iter = 4000, warmup = 2000)
+```
+
+## Rhat and effective sample size
+Rhat function produces R-hat convergence diagnostic and tells whether chains have mixed well. If Rhat values are less than 1.05, it implies that the chains have converged.
+```{r}
+print(fit_sample_h)
+```
+We can see that Rhat value for all the weights are less than 1.05 implying that all the chains have converged.
+
+## HMC-NUT Specific diagnostics
+```{r}
+check_divergences(fit_sample_h)
+check_treedepth(fit_sample_h)
 ```
 Here, we see that there are no iterations which have diverged and none which have saturated the maximum tree depth.
 
@@ -216,45 +366,34 @@ Here, we see that there are no iterations which have diverged and none which hav
 Now that we have ensured that out model has converged and sampled properly, we could compare the weights of the features we obtained from this model with the true values of the weights. We are plotting the histogram of the weight distributions obtained from our model. The blue line in each histogram denotes the true weight of the features.
 
 ```{r}
-ext_sample = extract(fit_sample)
-for(i in 1:length(w_true)){
-  draws <- as.matrix(fit_sample, pars = c(sprintf('w[%d]',i)))
-  hist(draws)
-  lines(w_true[i],type='l')
-  lines(c(w_true[i],w_true[i]), c(0,1000), col="blue", lwd=2)
+ext_sample = extract(fit_sample_h)
+for(i in 1:nrow(w_true_h)){
+  for(j in 1:ncol(w_true_h)){
+    draws <- as.matrix(fit_sample_h, pars = c(sprintf('w[%d,%d]',i,j)))
+    hist(draws)
+    lines(w_true_h[i,j],type='l')
+    lines(c(w_true_h[i,j],w_true_h[i,j]), c(0,1000), col="blue", lwd=2)
+  }
 }
 ```
 
 Since our true weight always lies in the posterior distribution of our weights, our model has learnt the system and this model works for the simulated data.
 
 
+# Model comparison with loo
+Here we use loo to compare two models, non-hierarchical and hierarchical model. 
 
-```{r, results='hide'}
-model_2 <- stan_model('Project_prior_dirichlet.stan')
-data_2 <- list(n = nrow(X),
-                 d = ncol(X),
-                 m = length(f_x_xp),
-                 dat = X,
-                 f = f_x_xp,
-                 x = x,
-                 xp = xp
-)
-fit_sample2 <- sampling(model_2, data = data_2)
-```
 ```{r}
-print(fit_sample2)
+library("loo")
+loo_pooled = loo(fit_sample_p)
+print(loo_pooled)
+loo_hier = loo(fit_sample_h)
+print(loo_hier)
+compare(loo_pooled,loo_hier)
 ```
-```{r}
-check_divergences(fit_sample2)
-check_treedepth(fit_sample2)
-check_energy(fit_sample2)
-```
-```{r}
-ext_sample = extract(fit_sample)
-for(i in 1:length(w_true)){
-  draws <- as.matrix(fit_sample, pars = c(sprintf('w[%d]',i)))
-  hist(draws)
-  lines(w_true[i],type='l')
-  lines(c(w_true[i],w_true[i]), c(0,1000), col="blue", lwd=2)
-}
-```
+The k-values for both models are all less than 0.5. Since the k-values should be less than 0.7, so it
+Since the elpd_diff is positive, then the expected predictive accuracy for the second model is higher. Therefore, in this model comparison the hierarchical model wins.
+
+# Discussion
+Preference learning is an important problem in human-in-the-loop systems. In particular, in this project we were interested to learn the hidden preference of users over features of items, from observations about comparisons of items. This project was the first step of designing such models and we showed that a hierarchial model can be implemented to learn the weights over features. In this report, we used simulated data to asses the feasiility of the idea. This was because the project owner (Pedram Daee) provided such data for us. As a next step, the research will continue to optimally desing an interaction algorithm with the users. For example, given a history of a preference of several users, what pair of items should we show to the user such that after providing preference over them, we would maximally gain information about the user interest over features (see for example [this](https://link.springer.com/article/10.1007/s10994-017-5651-7)).
+
